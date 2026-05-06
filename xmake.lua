@@ -12,10 +12,17 @@ option("cuda")
     end)
 option_end()
 
+-- Dependencies from xrepo
 add_requires("sqlite3", "toml11", "openmp")
+add_requires("imgui-sfml v3.0", {configs = {imgui = "v1.91.5"}})
+add_requires("sfml", {configs = {audio = false, network = false}})
 
 target("TicTacToe")
     set_kind("binary")
+    
+    if is_plat("linux") then
+        add_syslinks("X11", "Xrandr", "Xcursor", "Xinerama", "Xi", "udev", "GL", "pthread", "dl")
+    end
     
     on_load(function (target)
         -- Check if libtorch is present in the project directory
@@ -57,7 +64,7 @@ target("TicTacToe")
 
     add_files("src/*.cpp")
     add_includedirs("include")
-    add_packages("sqlite3", "toml11", "openmp")
+    add_packages("sqlite3", "toml11", "openmp", "imgui-sfml", "sfml")
     set_languages("c++17")
     
     if is_plat("linux", "macosx") then
