@@ -1,4 +1,5 @@
 build
 .vscode
+.xmake
 config.toml
 modelslibtorch/
