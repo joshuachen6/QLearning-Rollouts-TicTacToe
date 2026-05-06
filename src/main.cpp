@@ -364,7 +364,7 @@ int main() {
                 state = AppState::MENU;
             }
             ImGui::SameLine();
-            if (ImGui::Button("Clear All Data", ImVec2(150, 0))) {
+            if (ImGui::Button("Clear All Data")) {
                 std::filesystem::remove(config.database);
                 std::filesystem::remove(config.savePath);
                 table = std::make_unique<Table>(config.database);
