@@ -3,7 +3,7 @@
 ResNetImpl::ResNetImpl() {
     conv1 = register_module("conv1", torch::nn::Conv2d(torch::nn::Conv2dOptions(3, 16, 3).bias(false).padding(1)));
     norm1 = register_module("norm1", torch::nn::BatchNorm2d(16));
-    for (int i = 1; i <= 0; i++) {
+    for (int i = 1; i <= 3; i++) {
         blocks.push_back(register_module("blck" + std::to_string(i), BasicBlock(16, 16)));
     }
     fltn1 = register_module("fltn1", torch::nn::Flatten());

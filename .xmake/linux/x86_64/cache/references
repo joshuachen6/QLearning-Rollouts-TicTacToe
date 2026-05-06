@@ -1,0 +1,7 @@
+{
+    packages = {
+        "/home/jchen/.xmake/packages/n/ninja/v1.13.1/e7cc4735aeb048e6870171a23c4ee800",
+        "/home/jchen/.xmake/packages/t/toml11/v4.4.0/d9b5d9555a9849b0a8e5714c4e66d566",
+        "/home/jchen/.xmake/packages/o/openmp/latest/1317af4e5e2d4a6dbd57a45d3554b167"
+    }
+}

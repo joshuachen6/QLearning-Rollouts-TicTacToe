@@ -5,6 +5,8 @@ Table::Table(std::string path) {
     if (code != SQLITE_OK) {
         std::cerr << "Failed to Open Database File" << std::endl;
     }
+    const char* cmd = "CREATE TABLE IF NOT EXISTS q_values (state BLOB PRIMARY KEY, value REAL, count INTEGER DEFAULT 0);";
+    sqlite3_exec(db, cmd, NULL, NULL, NULL);
 }
 
 Table& Table::updateQ(torch::Tensor& state, double value) {

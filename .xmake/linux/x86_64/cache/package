@@ -1,0 +1,34 @@
+{
+    sqlite3 = {
+        __enabled = true,
+        shared = true,
+        version = "3.50.2",
+        __requirestr = "sqlite3",
+        libfiles = "/usr/lib64/libsqlite3.so",
+        links = "sqlite3"
+    },
+    toml11 = {
+        license = "MIT",
+        __enabled = true,
+        version = "v4.4.0",
+        __requirestr = "toml11",
+        envs = {
+            PATH = {
+                "/home/jchen/.xmake/packages/n/ninja/v1.13.1/e7cc4735aeb048e6870171a23c4ee800/bin",
+                "/home/jchen/.xmake/packages/c/cmake/4.0.3/b686e3b7911246e2bfa1b52ae27762fe/bin"
+            }
+        },
+        sysincludedirs = "/home/jchen/.xmake/packages/t/toml11/v4.4.0/d9b5d9555a9849b0a8e5714c4e66d566/include",
+        installdir = "/home/jchen/.xmake/packages/t/toml11/v4.4.0/d9b5d9555a9849b0a8e5714c4e66d566"
+    },
+    openmp = {
+        cxxflags = "-fopenmp",
+        ldflags = "-fopenmp",
+        installdir = "/home/jchen/.xmake/packages/o/openmp/latest/1317af4e5e2d4a6dbd57a45d3554b167",
+        shflags = "-fopenmp",
+        __requirestr = "openmp",
+        cuflags = "-Xcompiler -fopenmp",
+        __enabled = true,
+        cflags = "-fopenmp"
+    }
+}
