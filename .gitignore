@@ -3,3 +3,4 @@ build
 .xmake
 config.toml
 modelslibtorch/
+libtorch
