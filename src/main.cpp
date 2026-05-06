@@ -149,28 +149,67 @@ void trainingWorker(AppConfig config, TrainingStatus& status) {
             for (int i = 0; i < config.boards; i++) {
                 if (boards[i].getResult() == Result::NONE) {
                     int offset = offsets[i];
-                    int top = torch::rand({1}).item<float>() * sizes[i];
-                    if (torch::rand({1}).item<float>() > config.epsilon) {
-                        torch::Tensor scores_tensor = evaluation.slice(0, offset, offset + sizes[i]);
-                        if (boards[i].getTurn() == Player::cross) {
-                            top = torch::argmax(scores_tensor).item<int>();
-                        } else {
-                            top = torch::argmin(scores_tensor).item<int>();
+                    int top = -1;
+
+                    // 1-step lookahead for simulation quality
+                    // Check win
+                    for (int k = 0; k < sizes[i]; k++) {
+                        boards[i].makeMove(moves[i][k]);
+                        if (boards[i].getResult() != Result::NONE && boards[i].getResult() != Result::STALEMATE) {
+                            top = k;
+                            boards[i].undo();
+                            break;
+                        }
+                        boards[i].undo();
+                    }
+
+                    // Check block
+                    if (top == -1) {
+                        Player current = boards[i].getTurn();
+                        Player opponent = (Player)(1 - (int)current);
+                        for (int k = 0; k < sizes[i]; k++) {
+                            Move oppMove = moves[i][k];
+                            oppMove.player = opponent;
+                            boards[i].makeMove(oppMove);
+                            if (boards[i].getResult() != Result::NONE && boards[i].getResult() != Result::STALEMATE) {
+                                top = k;
+                                boards[i].undo();
+                                break;
+                            }
+                            boards[i].undo();
                         }
                     }
+
+                    // Fallback to epsilon-greedy
+                    if (top == -1) {
+                        top = torch::rand({1}).item<float>() * sizes[i];
+                        if (torch::rand({1}).item<float>() > config.epsilon) {
+                            torch::Tensor scores_tensor = evaluation.slice(0, offset, offset + sizes[i]);
+                            if (boards[i].getTurn() == Player::cross) {
+                                top = torch::argmax(scores_tensor).item<int>();
+                            } else {
+                                top = torch::argmin(scores_tensor).item<int>();
+                            }
+                        }
+                    }
+
                     boards[i].makeMove(moves[i][top]);
                     states[i].push_back(boards[i].getData().clone());
 
                     Result outcome = boards[i].getResult();
                     if (outcome != Result::NONE) {
                         double score = 0;
-                        if (outcome == Result::CROSS) score = 1;
-                        else if (outcome == Result::CIRCLE) score = -1;
+                        if (outcome == Result::CROSS) score = 1.0;
+                        else if (outcome == Result::CIRCLE) score = -1.0;
+                        // Draw stays 0
 
                         int numMoves = states[i].size();
                         scores[i] = std::vector<double>(numMoves);
                         for (int k = 0; k < numMoves; k++) {
-                            scores[i][k] = score * exp(-(numMoves - 1 - k) * config.alpha);
+                            // The LAST move (k = numMoves-1) gets the highest reward
+                            // Earlier moves are discounted
+                            int stepsFromEnd = (numMoves - 1) - k;
+                            scores[i][k] = score * std::pow(1.0 - config.alpha, stepsFromEnd);
                         }
                     }
                 }
@@ -182,16 +221,20 @@ void trainingWorker(AppConfig config, TrainingStatus& status) {
 
         if (epoch % config.trainStep == 0) {
             status.setMessage("Epoch " + std::to_string(epoch) + ": Training Network...");
-            auto trainingData = table.getDataset(config.batchSize);
-            torch::Tensor x = trainingData.first.to(device);
-            torch::Tensor y = trainingData.second.view({-1, 1}).to(device);
+            
+            // Train for multiple iterations to ensure convergence
+            for (int k = 0; k < 20; k++) {
+                auto trainingData = table.getDataset(config.batchSize);
+                torch::Tensor x = trainingData.first.to(device);
+                torch::Tensor y = trainingData.second.view({-1, 1}).to(device);
 
-            optimizer.zero_grad();
-            torch::Tensor output = network->forward(x);
-            torch::Tensor loss = lossFunction->forward(output, y);
-            loss.backward();
-            optimizer.step();
-            status.lastLoss = loss.item<float>();
+                optimizer.zero_grad();
+                torch::Tensor output = network->forward(x);
+                torch::Tensor loss = lossFunction->forward(output, y);
+                loss.backward();
+                optimizer.step();
+                status.lastLoss = loss.item<float>();
+            }
         }
     }
 
@@ -253,7 +296,7 @@ int main() {
     ResNet gameNetwork;
     bool networkLoaded = false;
     Player humanPlayer = Player::cross;
-    Table table(config.database);
+    auto table = std::make_unique<Table>(config.database);
 
     sf::Clock deltaClock;
     while (window.isOpen()) {
@@ -321,6 +364,14 @@ int main() {
                 state = AppState::MENU;
             }
             ImGui::SameLine();
+            if (ImGui::Button("Clear All Data", ImVec2(150, 0))) {
+                std::filesystem::remove(config.database);
+                std::filesystem::remove(config.savePath);
+                table = std::make_unique<Table>(config.database);
+                gameNetwork = ResNet();
+                networkLoaded = false;
+            }
+            ImGui::SameLine();
             if (ImGui::Button("Cancel")) {
                 config.load();
                 state = AppState::MENU;
@@ -385,17 +436,50 @@ int main() {
                                 // AI Turn
                                 if (gameBoard.getResult() == Result::NONE) {
                                     auto moves = gameBoard.getMoves();
-                                    torch::Tensor buffer = torch::zeros({(long)moves.size(), 3, 3, 3});
+                                    int bestMoveIndex = -1;
+
+                                    // 1. Check for immediate win
                                     for (int k = 0; k < moves.size(); k++) {
                                         gameBoard.makeMove(moves[k]);
-                                        buffer[k] = gameBoard.getData();
+                                        if (gameBoard.getResult() != Result::NONE && gameBoard.getResult() != Result::STALEMATE) {
+                                            bestMoveIndex = k;
+                                            gameBoard.undo();
+                                            break;
+                                        }
                                         gameBoard.undo();
                                     }
-                                    torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
-                                    buffer = buffer.to(device);
-                                    torch::Tensor output = gameNetwork->forward(buffer);
-                                    int best = (gameBoard.getTurn() == Player::cross) ? torch::argmax(output).item<int>() : torch::argmin(output).item<int>();
-                                    gameBoard.makeMove(moves[best]);
+
+                                    // 2. Check for immediate block (opponent's win)
+                                    if (bestMoveIndex == -1) {
+                                        Player opponent = (Player)(1 - (int)gameBoard.getTurn());
+                                        for (int k = 0; k < moves.size(); k++) {
+                                            Move oppMove = moves[k];
+                                            oppMove.player = opponent;
+                                            gameBoard.makeMove(oppMove);
+                                            if (gameBoard.getResult() != Result::NONE && gameBoard.getResult() != Result::STALEMATE) {
+                                                bestMoveIndex = k;
+                                                gameBoard.undo();
+                                                break;
+                                            }
+                                            gameBoard.undo();
+                                        }
+                                    }
+
+                                    // 3. Fallback to ResNet
+                                    if (bestMoveIndex == -1) {
+                                        torch::Tensor buffer = torch::zeros({(long)moves.size(), 3, 3, 3});
+                                        for (int k = 0; k < moves.size(); k++) {
+                                            gameBoard.makeMove(moves[k]);
+                                            buffer[k] = gameBoard.getData();
+                                            gameBoard.undo();
+                                        }
+                                        torch::Device device(torch::cuda::is_available() ? torch::kCUDA : torch::kCPU);
+                                        buffer = buffer.to(device);
+                                        torch::Tensor output = gameNetwork->forward(buffer);
+                                        bestMoveIndex = (gameBoard.getTurn() == Player::cross) ? torch::argmax(output).item<int>() : torch::argmin(output).item<int>();
+                                    }
+
+                                    gameBoard.makeMove(moves[bestMoveIndex]);
                                 }
                             }
                         }

@@ -40,26 +40,45 @@ Table& Table::updateQ(std::vector<std::vector<torch::Tensor>>& states, std::vect
         "INSERT INTO q_values (state, value, count) "
         "VALUES (?, ?, 1) "
         "ON CONFLICT(state) DO UPDATE SET "
-        "value = (value * count + excluded.value) / (count + 1), "
+        "value = value + 0.3 * (excluded.value - value), "
         "count = count + 1;";
     sqlite3_prepare(db, cmd.c_str(), -1, &stmt, nullptr);
 
     for (int i = 0; i < states.size(); i++) {
         for (int j = 0; j < states[i].size(); j++) {
-            std::string data = serialize(states[i][j]);
-            sqlite3_bind_blob(stmt, 1, data.data(), data.size(), SQLITE_STATIC);
-            sqlite3_bind_double(stmt, 2, values[i][j]);
-            int code = sqlite3_step(stmt);
-            if (code != SQLITE_DONE) {
-                std::cerr << sqlite3_errmsg(db) << std::endl;;
+            torch::Tensor state = states[i][j];
+            double val = values[i][j];
+
+            // Add 8 symmetries (4 rotations * 2 flips)
+            for (int r = 0; r < 4; r++) {
+                // Rotation
+                torch::Tensor rotated = state.clone();
+                if (r > 0) {
+                    rotated.index_put_({0}, torch::rot90(state.index({0}), r, {0, 1}));
+                    rotated.index_put_({1}, torch::rot90(state.index({1}), r, {0, 1}));
+                }
+
+                auto addSym = [&](torch::Tensor s) {
+                    std::string data = serialize(s);
+                    sqlite3_bind_blob(stmt, 1, data.data(), data.size(), SQLITE_STATIC);
+                    sqlite3_bind_double(stmt, 2, val);
+                    sqlite3_step(stmt);
+                    sqlite3_reset(stmt);
+                    sqlite3_clear_bindings(stmt);
+                };
+
+                addSym(rotated);
+
+                // Flip
+                torch::Tensor flipped = rotated.clone();
+                flipped.index_put_({0}, torch::flip(rotated.index({0}), {0}));
+                flipped.index_put_({1}, torch::flip(rotated.index({1}), {0}));
+                addSym(flipped);
             }
-            sqlite3_reset(stmt);
-            sqlite3_clear_bindings(stmt);
         }
     }
 
     sqlite3_finalize(stmt);
-    
     sqlite3_exec(db, "END TRANSACTION;", NULL, NULL, NULL);
     return *this;
 }
